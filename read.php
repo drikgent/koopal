@@ -43,6 +43,7 @@ function resolve_public_asset_url($path) {
     }
 
     $path = str_replace('\\', '/', $path);
+    $uploadsBaseUrl = rtrim((string) getenv('UPLOADS_BASE_URL'), '/');
 
     if (preg_match('~^(https?:)?//~i', $path)) {
         return $path;
@@ -59,15 +60,24 @@ function resolve_public_asset_url($path) {
         $rootPos = stripos($path, $publicRoot);
         if ($rootPos !== false) {
             $publicPath = substr($path, $rootPos);
+            if ($uploadsBaseUrl !== '' && strpos($publicPath, '/uploads/') === 0) {
+                return $uploadsBaseUrl . $publicPath;
+            }
             return $basePath . str_replace(' ', '%20', $publicPath);
         }
     }
 
     if (strpos($path, '/uploads/') === 0 || strpos($path, '/assets/') === 0) {
+        if ($uploadsBaseUrl !== '' && strpos($path, '/uploads/') === 0) {
+            return $uploadsBaseUrl . $path;
+        }
         return $basePath . str_replace(' ', '%20', $path);
     }
 
     if (strpos($path, 'uploads/') === 0 || strpos($path, 'assets/') === 0) {
+        if ($uploadsBaseUrl !== '' && strpos($path, 'uploads/') === 0) {
+            return $uploadsBaseUrl . '/' . str_replace(' ', '%20', ltrim($path, '/'));
+        }
         return ($basePath !== '' ? $basePath . '/' : '') . str_replace(' ', '%20', ltrim($path, '/'));
     }
 
