@@ -56,34 +56,67 @@ function resolve_public_asset_url($path) {
 }
 
 function ensure_series_comments_table_exists(PDO $pdo) {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS series_comments (
-            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            series_id INT NOT NULL,
-            user_id INT NOT NULL,
-            content TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_series_comments_series (series_id),
-            INDEX idx_series_comments_user (user_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ");
+    $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'pgsql') {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS series_comments (
+                id BIGSERIAL PRIMARY KEY,
+                series_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_series_comments_series ON series_comments (series_id)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_series_comments_user ON series_comments (user_id)");
+    } else {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS series_comments (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                series_id INT NOT NULL,
+                user_id INT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_series_comments_series (series_id),
+                INDEX idx_series_comments_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    }
 }
 
 function ensure_series_ratings_table_exists(PDO $pdo) {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS series_ratings (
-            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            series_id INT NOT NULL,
-            user_id INT NOT NULL,
-            rating TINYINT UNSIGNED NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_series_user_rating (series_id, user_id),
-            INDEX idx_series_ratings_series (series_id),
-            INDEX idx_series_ratings_user (user_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ");
+    $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'pgsql') {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS series_ratings (
+                id BIGSERIAL PRIMARY KEY,
+                series_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT uniq_series_user_rating UNIQUE (series_id, user_id)
+            )
+        ");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_series_ratings_series ON series_ratings (series_id)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_series_ratings_user ON series_ratings (user_id)");
+    } else {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS series_ratings (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                series_id INT NOT NULL,
+                user_id INT NOT NULL,
+                rating TINYINT UNSIGNED NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_series_user_rating (series_id, user_id),
+                INDEX idx_series_ratings_series (series_id),
+                INDEX idx_series_ratings_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    }
 }
 
 function time_elapsed_short($datetime) {
@@ -140,6 +173,7 @@ $rating_count = 0;
 try {
     ensure_series_comments_table_exists($pdo);
     ensure_series_ratings_table_exists($pdo);
+    $isPgsql = ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql');
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $rating_action = $_POST['rating_action'] ?? '';
@@ -155,11 +189,15 @@ try {
                 $comment_message = 'Please choose a rating from 1 to 5.';
                 $comment_message_type = 'error';
             } else {
-                $stmt = $pdo->prepare("
-                    INSERT INTO series_ratings (series_id, user_id, rating)
-                    VALUES (?, ?, ?)
-                    ON DUPLICATE KEY UPDATE rating = VALUES(rating), updated_at = CURRENT_TIMESTAMP
-                ");
+                $ratingSql = $isPgsql
+                    ? "INSERT INTO series_ratings (series_id, user_id, rating)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT (series_id, user_id)
+                       DO UPDATE SET rating = EXCLUDED.rating, updated_at = CURRENT_TIMESTAMP"
+                    : "INSERT INTO series_ratings (series_id, user_id, rating)
+                       VALUES (?, ?, ?)
+                       ON DUPLICATE KEY UPDATE rating = VALUES(rating), updated_at = CURRENT_TIMESTAMP";
+                $stmt = $pdo->prepare($ratingSql);
                 $stmt->execute([$series_id, (int) $_SESSION['user_id'], $rating]);
                 header('Location: ' . $redirect_url . '#series-rating');
                 exit();
