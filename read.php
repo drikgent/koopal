@@ -86,20 +86,38 @@ function is_valid_local_image_path($relativePath) {
 }
 
 function ensure_chapter_comments_table_exists(PDO $pdo) {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS chapter_comments (
-            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            chapter_id INT NOT NULL,
-            series_id INT NOT NULL,
-            user_id INT NOT NULL,
-            content TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_chapter_comments_chapter (chapter_id),
-            INDEX idx_chapter_comments_series (series_id),
-            INDEX idx_chapter_comments_user (user_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ");
+    $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'pgsql') {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS chapter_comments (
+                id BIGSERIAL PRIMARY KEY,
+                chapter_id BIGINT NOT NULL,
+                series_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chapter_comments_chapter ON chapter_comments (chapter_id)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chapter_comments_series ON chapter_comments (series_id)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chapter_comments_user ON chapter_comments (user_id)");
+    } else {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS chapter_comments (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                chapter_id INT NOT NULL,
+                series_id INT NOT NULL,
+                user_id INT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_chapter_comments_chapter (chapter_id),
+                INDEX idx_chapter_comments_series (series_id),
+                INDEX idx_chapter_comments_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    }
 }
 
 function time_elapsed_short($datetime) {
@@ -128,6 +146,7 @@ $edit_comment_content = '';
 
 try {
     ensure_chapter_comments_table_exists($pdo);
+    $isPgsql = ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql');
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $comment_action = $_POST['comment_action'] ?? '';
@@ -206,21 +225,26 @@ if (isset($_SESSION['user_id']) && isset($_GET['chapter_id'])) {
     $chapter_id_to_mark = intval($_GET['chapter_id']);
 
     // ✅ A) Save latest read chapter (Continue Reading)
-    $stmt = $pdo->prepare("
-        INSERT INTO user_read_chapters (user_id, series_id, chapter_id, read_at)
-        VALUES (?, ?, ?, NOW())
-        ON DUPLICATE KEY UPDATE 
-            chapter_id = VALUES(chapter_id),
-            read_at = NOW()
-    ");
+    $latestReadSql = $isPgsql
+        ? "INSERT INTO user_read_chapters (user_id, series_id, chapter_id, read_at)
+           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT (user_id, series_id)
+           DO UPDATE SET chapter_id = EXCLUDED.chapter_id, read_at = CURRENT_TIMESTAMP"
+        : "INSERT INTO user_read_chapters (user_id, series_id, chapter_id, read_at)
+           VALUES (?, ?, ?, NOW())
+           ON DUPLICATE KEY UPDATE chapter_id = VALUES(chapter_id), read_at = NOW()";
+    $stmt = $pdo->prepare($latestReadSql);
     $stmt->execute([$user_id, $series_id, $chapter_id_to_mark]);
 
     // ✅ B) Save chapter into read history (Highlighting)
-    $stmtHist = $pdo->prepare("
-        INSERT INTO user_read_chapter_events (user_id, series_id, chapter_id, read_at)
-        VALUES (?, ?, ?, NOW())
-        ON DUPLICATE KEY UPDATE read_at = read_at
-    ");
+    $historySql = $isPgsql
+        ? "INSERT INTO user_read_chapter_events (user_id, series_id, chapter_id, read_at)
+           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT (user_id, series_id, chapter_id) DO NOTHING"
+        : "INSERT INTO user_read_chapter_events (user_id, series_id, chapter_id, read_at)
+           VALUES (?, ?, ?, NOW())
+           ON DUPLICATE KEY UPDATE read_at = read_at";
+    $stmtHist = $pdo->prepare($historySql);
     $stmtHist->execute([$user_id, $series_id, $chapter_id_to_mark]);
 }
 
