@@ -9,6 +9,8 @@ function env_or_default(string $key, string $default): string {
 $driver = strtolower(env_or_default('DB_DRIVER', 'pgsql'));
 $dbTimezone = env_or_default('DB_TIMEZONE', 'Asia/Manila');
 $safeDbTimezone = str_replace("'", "''", $dbTimezone);
+$dbSchema = env_or_default('DB_SCHEMA', 'manhwa_db');
+$safeDbSchema = preg_replace('/[^a-zA-Z0-9_]/', '', $dbSchema) ?: 'manhwa_db';
 
 $options = [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -46,6 +48,7 @@ try {
         $dsn = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode={$sslmode}";
         $pdo = new PDO($dsn, $user, $pass, $options);
         $pdo->exec("SET TIME ZONE '{$safeDbTimezone}'");
+        $pdo->exec('SET search_path TO "' . $safeDbSchema . '", public');
     } else {
         $host = env_or_default('DB_HOST', 'localhost');
         $port = env_or_default('DB_PORT', '3306');

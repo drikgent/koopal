@@ -99,6 +99,11 @@ $total_series_count = 0;
 $total_pages = 1;
 
 try {
+    $isPgsql = ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql');
+    $chapterCountExpr = $isPgsql
+        ? "COUNT(CASE WHEN c.chapter_number = TRUNC(c.chapter_number) THEN 1 END)"
+        : "COUNT(CASE WHEN c.chapter_number = TRUNCATE(c.chapter_number, 0) THEN 1 ELSE NULL END)";
+
     // 1. Fetch total series count for pagination (must include search filter)
     $count_stmt_sql = "SELECT COUNT(*) FROM series s" . $searchQuery;
     $count_stmt = $pdo->prepare($count_stmt_sql);
@@ -132,7 +137,7 @@ try {
     // 3. Fetch series for the main grid with pagination (include search filter)
     $stmt_sql = "
     SELECT s.id, s.title, s.cover_image,
-            COUNT(CASE WHEN c.chapter_number = TRUNCATE(c.chapter_number, 0) THEN 1 ELSE NULL END) AS chapter_count,
+            {$chapterCountExpr} AS chapter_count,
             MAX(c.release_date) as latest_chapter_date
     FROM series s
     LEFT JOIN chapters c ON s.id = c.series_id
