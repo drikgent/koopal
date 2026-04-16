@@ -42,6 +42,8 @@ function resolve_public_asset_url($path) {
         return $path;
     }
 
+    $path = str_replace('\\', '/', $path);
+
     if (preg_match('~^(https?:)?//~i', $path)) {
         return $path;
     }
@@ -52,19 +54,28 @@ function resolve_public_asset_url($path) {
         $basePath = '';
     }
 
+    // Convert absolute filesystem paths (Windows/Linux) to public web paths.
+    foreach (['/uploads/', '/assets/'] as $publicRoot) {
+        $rootPos = stripos($path, $publicRoot);
+        if ($rootPos !== false) {
+            $publicPath = substr($path, $rootPos);
+            return $basePath . str_replace(' ', '%20', $publicPath);
+        }
+    }
+
     if (strpos($path, '/uploads/') === 0 || strpos($path, '/assets/') === 0) {
-        return $basePath . $path;
+        return $basePath . str_replace(' ', '%20', $path);
     }
 
     if (strpos($path, 'uploads/') === 0 || strpos($path, 'assets/') === 0) {
-        return ($basePath !== '' ? $basePath . '/' : '') . ltrim($path, '/');
+        return ($basePath !== '' ? $basePath . '/' : '') . str_replace(' ', '%20', ltrim($path, '/'));
     }
 
     if (strpos($path, '/') === 0) {
-        return $basePath . $path;
+        return $basePath . str_replace(' ', '%20', $path);
     }
 
-    return ($basePath !== '' ? $basePath . '/' : '') . ltrim($path, '/');
+    return ($basePath !== '' ? $basePath . '/' : '') . str_replace(' ', '%20', ltrim($path, '/'));
 }
 
 function is_valid_local_image_path($relativePath) {
