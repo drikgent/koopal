@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <title>KooPal Reader</title>
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-mark">K</div>
+        <div>
+          <p class="eyebrow">Offline Library</p>
+          <h1>KooPal Reader</h1>
+        </div>
+      </div>
+      <button id="import-trigger" class="primary-btn" type="button">Import</button>
+    </header>
+
+    <main class="main-content">
+      <section id="library-view" class="view active">
+        <section class="hero-card">
+          <div>
+            <p class="eyebrow">Private Reading</p>
+            <h2>Your files stay on this device.</h2>
+            <p class="hero-copy">
+              Import your own image files, keep them offline, and read without needing your laptop or a public website.
+            </p>
+          </div>
+          <div class="hero-meta">
+            <div class="stat-tile">
+              <strong id="book-count">0</strong>
+              <span>Saved Books</span>
+            </div>
+            <div class="stat-tile">
+              <strong>Offline</strong>
+              <span>No server required</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="import-card">
+          <div class="section-heading">
+            <h3>Import a New Book</h3>
+            <p>Select multiple image files from a chapter or volume.</p>
+          </div>
+          <form id="import-form" class="import-form">
+            <label class="field">
+              <span>Book title</span>
+              <input id="book-title" name="book-title" type="text" maxlength="120" placeholder="Example: Demonic Evolution - Chapter 1">
+            </label>
+            <label class="field file-field">
+              <span>Pages</span>
+              <input id="page-files" name="page-files" type="file" accept="image/*" multiple required>
+            </label>
+            <button class="primary-btn wide" type="submit">Save Offline</button>
+          </form>
+          <p class="helper-text">Tip: choose files from one chapter at a time for cleaner reading order.</p>
+        </section>
+
+        <section class="library-section">
+          <div class="section-heading">
+            <h3>Your Library</h3>
+            <p id="library-subcopy">No saved books yet.</p>
+          </div>
+          <div id="empty-state" class="empty-state">
+            <div class="empty-icon">+</div>
+            <h4>Start your offline shelf</h4>
+            <p>Import your own pages above, then open them anytime even without internet or your laptop.</p>
+          </div>
+          <div id="library-grid" class="library-grid"></div>
+        </section>
+      </section>
+
+      <section id="reader-view" class="view reader-view">
+        <div class="reader-topbar">
+          <button id="back-to-library" class="ghost-btn" type="button">Back</button>
+          <div class="reader-meta">
+            <h2 id="reader-title">Book Title</h2>
+            <p id="reader-count">0 pages</p>
+          </div>
+          <button id="delete-book" class="danger-btn" type="button">Delete</button>
+        </div>
+        <div id="reader-pages" class="reader-pages"></div>
+      </section>
+    </main>
+  </div>
+
+  <template id="book-card-template">
+    <article class="book-card">
+      <button class="card-delete" type="button" aria-label="Delete book">×</button>
+      <button class="book-open" type="button">
+        <div class="cover-frame">
+          <img class="cover-image" alt="">
+        </div>
+        <div class="card-body">
+          <h4 class="book-title"></h4>
+          <p class="book-meta"></p>
+        </div>
+      </button>
+    </article>
+  </template>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

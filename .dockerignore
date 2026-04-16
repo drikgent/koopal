@@ -1,0 +1,12 @@
+.git
+.github
+.vscode
+node_modules
+android
+*.log
+*.zip
+*.sql
+*.sqlite
+.env
+.env.*
+index.recovered-from-vscode.php
