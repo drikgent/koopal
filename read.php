@@ -88,6 +88,14 @@ function resolve_public_asset_url($path) {
     return ($basePath !== '' ? $basePath . '/' : '') . str_replace(' ', '%20', ltrim($path, '/'));
 }
 
+function resolve_chapter_image_url($path) {
+    $resolved = resolve_public_asset_url($path);
+    if (preg_match('~^https?://~i', $resolved)) {
+        return 'image_proxy.php?url=' . rawurlencode($resolved);
+    }
+    return $resolved;
+}
+
 function is_valid_local_image_path($relativePath) {
     $relativePath = trim((string) $relativePath);
     if ($relativePath === '') {
@@ -291,7 +299,7 @@ if (isset($_SESSION['user_id']) && isset($_GET['chapter_id'])) {
         $pageRows = $stmt->fetchAll(PDO::FETCH_COLUMN);
         $pageRows = array_map(static fn($url) => trim((string) $url), $pageRows);
         $pageRows = array_values(array_filter($pageRows, static fn($url) => $url !== ''));
-        $pages = array_map('resolve_public_asset_url', $pageRows);
+        $pages = array_map('resolve_chapter_image_url', $pageRows);
 
         // Determine previous and next chapter
         $stmt = $pdo->prepare(
