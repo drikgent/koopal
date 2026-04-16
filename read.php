@@ -225,27 +225,33 @@ if (isset($_SESSION['user_id']) && isset($_GET['chapter_id'])) {
     $chapter_id_to_mark = intval($_GET['chapter_id']);
 
     // ✅ A) Save latest read chapter (Continue Reading)
-    $latestReadSql = $isPgsql
-        ? "INSERT INTO user_read_chapters (user_id, series_id, chapter_id, read_at)
-           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-           ON CONFLICT (user_id, series_id)
-           DO UPDATE SET chapter_id = EXCLUDED.chapter_id, read_at = CURRENT_TIMESTAMP"
-        : "INSERT INTO user_read_chapters (user_id, series_id, chapter_id, read_at)
-           VALUES (?, ?, ?, NOW())
-           ON DUPLICATE KEY UPDATE chapter_id = VALUES(chapter_id), read_at = NOW()";
-    $stmt = $pdo->prepare($latestReadSql);
-    $stmt->execute([$user_id, $series_id, $chapter_id_to_mark]);
+        // Save latest read chapter (continue reading) without relying on UPSERT constraints.
+    $stmt = $pdo->prepare("
+        UPDATE user_read_chapters
+        SET chapter_id = ?, read_at = CURRENT_TIMESTAMP
+        WHERE user_id = ? AND series_id = ?
+    ");
+    $stmt->execute([$chapter_id_to_mark, $user_id, $series_id]);
 
-    // ✅ B) Save chapter into read history (Highlighting)
-    $historySql = $isPgsql
-        ? "INSERT INTO user_read_chapter_events (user_id, series_id, chapter_id, read_at)
-           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-           ON CONFLICT (user_id, series_id, chapter_id) DO NOTHING"
-        : "INSERT INTO user_read_chapter_events (user_id, series_id, chapter_id, read_at)
-           VALUES (?, ?, ?, NOW())
-           ON DUPLICATE KEY UPDATE read_at = read_at";
-    $stmtHist = $pdo->prepare($historySql);
-    $stmtHist->execute([$user_id, $series_id, $chapter_id_to_mark]);
+    if ($stmt->rowCount() === 0) {
+        $stmt = $pdo->prepare("
+            INSERT INTO user_read_chapters (user_id, series_id, chapter_id, read_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ");
+        $stmt->execute([$user_id, $series_id, $chapter_id_to_mark]);
+    }
+
+    // Save chapter into read history (only once per user/series/chapter).
+    $stmtHist = $pdo->prepare("
+        INSERT INTO user_read_chapter_events (user_id, series_id, chapter_id, read_at)
+        SELECT ?, ?, ?, CURRENT_TIMESTAMP
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM user_read_chapter_events
+            WHERE user_id = ? AND series_id = ? AND chapter_id = ?
+        )
+    ");
+    $stmtHist->execute([$user_id, $series_id, $chapter_id_to_mark, $user_id, $series_id, $chapter_id_to_mark]);
 }
 
 
@@ -1278,3 +1284,4 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 </html>
+
