@@ -268,7 +268,8 @@ if (isset($_SESSION['user_id']) && isset($_GET['chapter_id'])) {
         $stmt = $pdo->prepare("SELECT image_url FROM pages WHERE chapter_id = ? ORDER BY page_number ASC");
         $stmt->execute([$chapter_id]);
         $pageRows = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        $pageRows = array_values(array_filter($pageRows, 'is_valid_local_image_path'));
+        $pageRows = array_map(static fn($url) => trim((string) $url), $pageRows);
+        $pageRows = array_values(array_filter($pageRows, static fn($url) => $url !== ''));
         $pages = array_map('resolve_public_asset_url', $pageRows);
 
         // Determine previous and next chapter
