@@ -43,8 +43,16 @@ $dstUser = env_or_fail('DST_DB_USER');
 $dstPass = env_or_fail('DST_DB_PASS');
 $dstSsl  = env_or_default('DST_DB_SSLMODE', 'require');
 $batchSize = (int) env_or_default('BATCH_SIZE', '1000');
+$retryCount = (int) env_or_default('RETRY_COUNT', '5');
+$retrySleepSeconds = (int) env_or_default('RETRY_SLEEP_SECONDS', '2');
 if ($batchSize < 1) {
     $batchSize = 1000;
+}
+if ($retryCount < 1) {
+    $retryCount = 5;
+}
+if ($retrySleepSeconds < 1) {
+    $retrySleepSeconds = 2;
 }
 
 $srcDsn = "mysql:host={$srcHost};port={$srcPort};dbname={$srcName};charset=utf8mb4";
@@ -56,9 +64,25 @@ $opts = [
     PDO::ATTR_EMULATE_PREPARES => false,
 ];
 
+function connect_destination(string $dsn, string $user, string $pass, array $opts): PDO {
+    $pdo = new PDO($dsn, $user, $pass, $opts);
+    $pdo->exec('SET search_path TO "manhwa_db", public');
+    return $pdo;
+}
+
+function is_connection_error(Throwable $e): bool {
+    $m = strtolower($e->getMessage());
+    return str_contains($m, 'no connection to the server')
+        || str_contains($m, 'server closed the connection unexpectedly')
+        || str_contains($m, 'terminating connection')
+        || str_contains($m, 'connection not open')
+        || str_contains($m, 'sqlstate[08006]')
+        || str_contains($m, 'sqlstate[57p01]')
+        || str_contains($m, 'sqlstate[57p02]');
+}
+
 $src = new PDO($srcDsn, $srcUser, $srcPass, $opts);
-$dst = new PDO($dstDsn, $dstUser, $dstPass, $opts);
-$dst->exec('SET search_path TO "manhwa_db", public');
+$dst = connect_destination($dstDsn, $dstUser, $dstPass, $opts);
 
 // Read only rows that look like crawler URLs.
 $countStmt = $src->query("SELECT COUNT(*) FROM pages WHERE image_url LIKE 'http%'");
@@ -77,14 +101,6 @@ $select = $src->prepare("
     LIMIT :limit OFFSET :offset
 ");
 
-// Update destination by exact row id first; fallback to chapter_id + page_number.
-$updateById = $dst->prepare("UPDATE pages SET image_url = :image_url WHERE id = :id");
-$updateByChapterPage = $dst->prepare("
-    UPDATE pages
-    SET image_url = :image_url
-    WHERE chapter_id = :chapter_id AND page_number = :page_number
-");
-
 $offset = 0;
 $updatedById = 0;
 $updatedByChapterPage = 0;
@@ -99,40 +115,73 @@ while ($offset < $total) {
         break;
     }
 
-    $dst->beginTransaction();
-    try {
-        foreach ($rows as $r) {
-            $imageUrl = trim((string) ($r['image_url'] ?? ''));
-            if ($imageUrl === '') {
-                continue;
+    $attempt = 0;
+    while (true) {
+        $batchUpdatedById = 0;
+        $batchUpdatedByChapterPage = 0;
+        $batchMissed = 0;
+        try {
+            // Recreate prepared statements each attempt (fresh connection safe).
+            $updateById = $dst->prepare("UPDATE pages SET image_url = :image_url WHERE id = :id");
+            $updateByChapterPage = $dst->prepare("
+                UPDATE pages
+                SET image_url = :image_url
+                WHERE chapter_id = :chapter_id AND page_number = :page_number
+            ");
+
+            $dst->beginTransaction();
+            foreach ($rows as $r) {
+                $imageUrl = trim((string) ($r['image_url'] ?? ''));
+                if ($imageUrl === '') {
+                    continue;
+                }
+
+                $updateById->execute([
+                    ':image_url' => $imageUrl,
+                    ':id' => (int) $r['id'],
+                ]);
+
+                if ($updateById->rowCount() > 0) {
+                    $batchUpdatedById++;
+                    continue;
+                }
+
+                $updateByChapterPage->execute([
+                    ':image_url' => $imageUrl,
+                    ':chapter_id' => (int) $r['chapter_id'],
+                    ':page_number' => (int) $r['page_number'],
+                ]);
+
+                if ($updateByChapterPage->rowCount() > 0) {
+                    $batchUpdatedByChapterPage++;
+                } else {
+                    $batchMissed++;
+                }
             }
 
-            $updateById->execute([
-                ':image_url' => $imageUrl,
-                ':id' => (int) $r['id'],
-            ]);
-
-            if ($updateById->rowCount() > 0) {
-                $updatedById++;
-                continue;
+            $dst->commit();
+            $updatedById += $batchUpdatedById;
+            $updatedByChapterPage += $batchUpdatedByChapterPage;
+            $missed += $batchMissed;
+            break;
+        } catch (Throwable $e) {
+            try {
+                if ($dst->inTransaction()) {
+                    $dst->rollBack();
+                }
+            } catch (Throwable $ignored) {
+                // Ignore rollback failure when connection is already gone.
             }
 
-            $updateByChapterPage->execute([
-                ':image_url' => $imageUrl,
-                ':chapter_id' => (int) $r['chapter_id'],
-                ':page_number' => (int) $r['page_number'],
-            ]);
-
-            if ($updateByChapterPage->rowCount() > 0) {
-                $updatedByChapterPage++;
-            } else {
-                $missed++;
+            if (!is_connection_error($e) || $attempt >= $retryCount) {
+                throw $e;
             }
+
+            $attempt++;
+            echo "Connection dropped at offset {$offset}. Retrying {$attempt}/{$retryCount}...\n";
+            sleep($retrySleepSeconds);
+            $dst = connect_destination($dstDsn, $dstUser, $dstPass, $opts);
         }
-        $dst->commit();
-    } catch (Throwable $e) {
-        $dst->rollBack();
-        throw $e;
     }
 
     $offset += count($rows);
@@ -143,4 +192,3 @@ echo "Done.\n";
 echo "Updated by id: {$updatedById}\n";
 echo "Updated by chapter/page: {$updatedByChapterPage}\n";
 echo "Missed: {$missed}\n";
-
