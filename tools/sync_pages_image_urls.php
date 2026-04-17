@@ -67,6 +67,8 @@ $opts = [
 function connect_destination(string $dsn, string $user, string $pass, array $opts): PDO {
     $pdo = new PDO($dsn, $user, $pass, $opts);
     $pdo->exec('SET search_path TO "manhwa_db", public');
+    $pdo->exec("SET statement_timeout = '0'");
+    $pdo->exec("SET lock_timeout = '5s'");
     return $pdo;
 }
 
@@ -78,7 +80,9 @@ function is_connection_error(Throwable $e): bool {
         || str_contains($m, 'connection not open')
         || str_contains($m, 'sqlstate[08006]')
         || str_contains($m, 'sqlstate[57p01]')
-        || str_contains($m, 'sqlstate[57p02]');
+        || str_contains($m, 'sqlstate[57p02]')
+        || str_contains($m, 'statement timeout')
+        || str_contains($m, 'sqlstate[57014]');
 }
 
 $src = new PDO($srcDsn, $srcUser, $srcPass, $opts);
