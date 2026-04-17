@@ -68,7 +68,7 @@ function connect_destination(string $dsn, string $user, string $pass, array $opt
     $pdo = new PDO($dsn, $user, $pass, $opts);
     $pdo->exec('SET search_path TO "manhwa_db", public');
     $pdo->exec("SET statement_timeout = '0'");
-    $pdo->exec("SET lock_timeout = '5s'");
+    $pdo->exec("SET lock_timeout = '0'");
     return $pdo;
 }
 
@@ -82,7 +82,9 @@ function is_connection_error(Throwable $e): bool {
         || str_contains($m, 'sqlstate[57p01]')
         || str_contains($m, 'sqlstate[57p02]')
         || str_contains($m, 'statement timeout')
-        || str_contains($m, 'sqlstate[57014]');
+        || str_contains($m, 'sqlstate[57014]')
+        || str_contains($m, 'lock timeout')
+        || str_contains($m, 'sqlstate[55p03]');
 }
 
 $src = new PDO($srcDsn, $srcUser, $srcPass, $opts);
